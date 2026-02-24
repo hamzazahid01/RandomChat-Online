@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel</title>
+<style>
+body { font-family: Arial; background:#f4f4f9; margin:0; padding:0; }
+.container { max-width:600px; margin:50px auto; background:#fff; padding:20px; border-radius:10px; box-shadow:0 0 15px rgba(0,0,0,0.2);}
+h2 { text-align:center; }
+form input { padding:10px; margin:5px 0; width:100%; border-radius:5px; border:1px solid #ccc; }
+form button { padding:10px; width:100%; border:none; border-radius:5px; background:#007bff; color:white; cursor:pointer; }
+form button:hover { background:#0056b3; }
+table { width:100%; border-collapse:collapse; margin-top:20px; }
+table th, table td { border:1px solid #ddd; padding:10px; text-align:left; }
+table th { background:#007bff; color:white; }
+.message { text-align:center; color:red; margin:10px 0; }
+.drag-handle { cursor:move; }
+.delete-btn { background:red; color:white; border:none; padding:5px 10px; border-radius:5px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="container">
+<h2>Admin Panel</h2>
+
+<% if(!loggedIn) { %>
+    <!-- Admin Login Form -->
+    <% if(message){ %>
+        <p class="message"><%= message %></p>
+    <% } %>
+    <form method="POST" action="/admin/login">
+        <input type="text" name="name" placeholder="Admin Name" required>
+        <input type="password" name="password" placeholder="Password" required>
+        <button type="submit">Login</button>
+    </form>
+<% } else { %>
+
+    <% if(message){ %>
+        <p class="message"><%= message %></p>
+    <% } %>
+
+    <!-- Create Room Form -->
+    <form method="POST" action="/admin/create-room">
+        <input type="text" name="name" placeholder="Room Name" required>
+        <button type="submit">Create Room</button>
+    </form>
+
+    <!-- Rooms List -->
+    <h3>All Rooms</h3>
+    <table id="rooms-table">
+        <thead>
+            <tr><th>Room Name</th><th>Position</th><th>Delete</th></tr>
+        </thead>
+        <tbody>
+        <% rooms.forEach(room => { %>
+            <tr data-id="<%= room._id %>">
+                <td><%= room.name %></td>
+                <td><input type="number" value="<%= room.position %>" class="pos-input" style="width:50px;"></td>
+                <td>
+                    <form method="POST" action="/admin/delete-room/<%= room._id %>" onsubmit="return confirm('Delete room?');">
+                        <button class="delete-btn">Delete</button>
+                    </form>
+                </td>
+            </tr>
+        <% }) %>
+        </tbody>
+    </table>
+    <button onclick="updatePositions()">Update Order</button>
+
+    <script>
+    function updatePositions(){
+        const rows = document.querySelectorAll("#rooms-table tbody tr");
+        const positions = [];
+        rows.forEach(row=>{
+            const id = row.dataset.id;
+            const pos = parseInt(row.querySelector(".pos-input").value);
+            positions.push({_id:id, position:pos});
+        });
+        fetch("/admin/update-positions", {
+            method:"POST",
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({positions})
+        }).then(res=>res.text()).then(data=>{
+            alert(data);
+            location.reload();
+        });
+    }
+    </script>
+
+<% } %>
+</div>
+</body>
+</html>

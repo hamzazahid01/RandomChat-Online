@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title><%= roomName %> | Chat</title>
+        <link rel="stylesheet" href="/chatstyle.css">
+    <script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js" type="module"></script>
+</head>
+<body>
+
+<div class="chat-wrapper">
+
+    <div class="chat-header">
+        <div>
+            <h3><%= roomName %></h3>
+            <span>Logged in as <b><%= nickname %></b></span>
+        </div>
+        <a href="/rooms" class="back-btn">Back</a>
+    </div>
+
+    <div id="chat-box" class="chat-box"></div>
+
+    <div class="chat-input-area">
+        <button class="icon-btn" onclick="toggleEmoji()">😊</button>
+        <input type="text" id="msg" placeholder="Type a message...">
+        <button class="icon-btn send-btn" onclick="sendMsg()">➤</button>
+        <button class="icon-btn mic-btn" id="micBtn">🎤</button>
+    </div>
+
+    <div id="emoji-box" class="emoji-box"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+const nickname = "<%= nickname %>";
+const roomId = "<%= roomId %>";
+const chatBox = document.getElementById("chat-box");
+const msgInput = document.getElementById("msg");
+const emojiBox = document.getElementById("emoji-box");
+const micBtn = document.getElementById("micBtn");
+
+socket.emit("joinRoom", { roomId, nickname });
+
+/* ================= EMOJI ================= */
+
+function toggleEmoji(){
+    if(emojiBox.style.display === "none" || emojiBox.style.display === ""){
+        emojiBox.style.display = "block";
+        emojiBox.innerHTML = "<emoji-picker></emoji-picker>";
+
+        document.querySelector("emoji-picker")
+        .addEventListener("emoji-click", e => {
+            msgInput.value += e.detail.unicode;
+        });
+    } else {
+        emojiBox.style.display = "none";
+        emojiBox.innerHTML = "";
+    }
+}
+
+/* ================= SEND TEXT ================= */
+
+function sendMsg(){
+    const message = msgInput.value.trim();
+    if(!message) return;
+
+    const id = Date.now().toString();
+
+    socket.emit("chatMessage", {
+        roomId,
+        user: nickname,
+        message,
+        id
+    });
+
+    msgInput.value = "";
+}
+
+/* ================= RENDER MESSAGE ================= */
+
+function renderMessage(data){
+    const div = document.createElement("div");
+    div.classList.add("message");
+    div.classList.add(data.user === nickname ? "my-msg" : "other-msg");
+    div.id = data.id;
+
+    div.innerHTML = `
+    ${data.user === nickname ? `
+        <div class="msg-menu-wrapper">
+            <div class="msg-menu">
+                ⋮
+                <div class="menu-dropdown">
+                    <span onclick="deleteMsg('${data.id}')">Unsend</span>
+                </div>
+            </div>
+        </div>
+    ` : ""}
+
+    <div class="msg-content">
+        ${data.user !== nickname ? `<span class="msg-user">${data.user}</span>` : ""}
+        <div class="msg-text">${data.message}</div>
+    </div>
+    `;
+
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+socket.on("chatMessage", data => {
+    renderMessage(data);
+});
+
+/* ================= DELETE ================= */
+
+function deleteMsg(id){
+    socket.emit("deleteMessage", { roomId, id });
+}
+
+socket.on("deleteMessage", data=>{
+    const msg = document.getElementById(data.id);
+    if(msg){
+        msg.querySelector(".msg-text").innerHTML = "<i>Message unsent</i>";
+    }
+});
+
+/* ================= VOICE RECORD (PRESS & HOLD) ================= */
+
+let mediaRecorder;
+let audioChunks = [];
+
+micBtn.addEventListener("mousedown", async ()=>{
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.start();
+    micBtn.classList.add("recording");
+
+    mediaRecorder.ondataavailable = e=>{
+        audioChunks.push(e.data);
+    };
+});
+
+micBtn.addEventListener("mouseup", ()=>{
+    if(mediaRecorder){
+        mediaRecorder.stop();
+        micBtn.classList.remove("recording");
+
+        mediaRecorder.onstop = ()=>{
+            const blob = new Blob(audioChunks, { type: "audio/webm" });
+            const url = URL.createObjectURL(blob);
+
+            socket.emit("chatMessage", {
+                roomId,
+                user: nickname,
+                message: `<audio controls src="${url}"></audio>`,
+                id: Date.now().toString()
+            });
+
+            audioChunks = [];
+        };
+    }
+});
+
+/* ================= ENTER ================= */
+
+msgInput.addEventListener("keypress", e=>{
+    if(e.key === "Enter") sendMsg();
+});
+</script>
+
+</body>
+</html>

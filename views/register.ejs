@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Random Chat</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="form-box">
+            <h2>Register</h2>
+
+            <form method="POST" action="/register">
+                <div class="input-group">
+                    <label for="nickname">Nickname</label>
+                    <input type="text" name="nickname" id="nickname" placeholder="Choose a nickname" required>
+                </div>
+
+                <div class="input-group">
+                    <label for="email">Email</label>
+                    <input type="email" name="email" id="email" placeholder="Enter your email" required>
+                </div>
+
+                <div class="input-group">
+                    <label for="password">Password</label>
+                    <input type="password" name="password" id="password" placeholder="Choose a password" required>
+                </div>
+
+                <button type="submit" class="btn">Register</button>
+            </form>
+
+            <p class="info-text">
+                Already have an account? <a href="/login">Login here</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>
