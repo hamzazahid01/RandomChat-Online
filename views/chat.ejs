@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title><%= roomName %> | Chat</title>
-        <link rel="stylesheet" href="/chatstyle.css">
-    <script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js" type="module"></script>
+<meta charset="UTF-8">
+<title><%= roomName %> | Chat</title>
+<link rel="stylesheet" href="/chatstyle.css">
+<script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js" type="module"></script>
 </head>
 <body>
 
@@ -20,9 +20,22 @@
 
     <div id="chat-box" class="chat-box"></div>
 
+    <div id="replyPreviewBar" class="reply-preview-bar">
+        <div class="reply-preview-left">
+            <div class="reply-preview-label">Replying to</div>
+            <div id="replyPreviewText" class="reply-preview-text"></div>
+        </div>
+        <button id="replyPreviewCancel" class="reply-preview-cancel" onclick="clearReply()">×</button>
+    </div>
+
     <div class="chat-input-area">
         <button class="icon-btn" onclick="toggleEmoji()">😊</button>
+
+        <input type="file" id="imageInput" accept="image/*" hidden>
+        <button class="icon-btn" onclick="triggerImage()">📎</button>
+
         <input type="text" id="msg" placeholder="Type a message...">
+
         <button class="icon-btn send-btn" onclick="sendMsg()">➤</button>
         <button class="icon-btn mic-btn" id="micBtn">🎤</button>
     </div>
@@ -30,8 +43,29 @@
     <div id="emoji-box" class="emoji-box"></div>
 </div>
 
+<!-- Image send options -->
+<div id="imageOptions" class="image-options">
+    <div class="image-options-inner">
+        <div class="image-options-preview">
+            <img id="imageOptionsPreview" alt="Image preview">
+        </div>
+        <div class="image-options-actions">
+            <button id="sendNormalBtn" class="image-options-btn">Send Normally</button>
+            <button id="sendViewOnceBtn" class="image-options-btn image-options-btn-primary">Send as View Once</button>
+            <button id="cancelImageBtn" class="image-options-btn image-options-btn-cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Image Modal -->
+<div id="imageModal" class="image-modal">
+    <span class="close-modal" onclick="closeModal()">×</span>
+    <img id="modalImage">
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script>
+
 const socket = io();
 const nickname = "<%= nickname %>";
 const roomId = "<%= roomId %>";
@@ -39,16 +73,94 @@ const chatBox = document.getElementById("chat-box");
 const msgInput = document.getElementById("msg");
 const emojiBox = document.getElementById("emoji-box");
 const micBtn = document.getElementById("micBtn");
+const imageInput = document.getElementById("imageInput");
+const replyPreviewBar = document.getElementById("replyPreviewBar");
+const replyPreviewText = document.getElementById("replyPreviewText");
+const imageOptions = document.getElementById("imageOptions");
+const imageOptionsPreview = document.getElementById("imageOptionsPreview");
+const sendNormalBtn = document.getElementById("sendNormalBtn");
+const sendViewOnceBtn = document.getElementById("sendViewOnceBtn");
+const cancelImageBtn = document.getElementById("cancelImageBtn");
+
+let selectedImageFile = null;
+let currentReply = null;
+const reactionsByMessage = {};
+
+const VIEW_ONCE_KEY = "viewOnceViewedMessages";
+let viewedOnceMessages = new Set();
+
+try {
+    const stored = sessionStorage.getItem(VIEW_ONCE_KEY);
+    if (stored) {
+        viewedOnceMessages = new Set(JSON.parse(stored));
+    }
+} catch (e) {
+    viewedOnceMessages = new Set();
+}
+
+function saveViewedOnce(){
+    try {
+        sessionStorage.setItem(VIEW_ONCE_KEY, JSON.stringify(Array.from(viewedOnceMessages)));
+    } catch (e) {}
+}
+
+function hasViewedOnce(id){
+    return viewedOnceMessages.has(id);
+}
+
+function markViewedOnce(id){
+    viewedOnceMessages.add(id);
+    saveViewedOnce();
+}
+
+function setReply(messageId, text){
+    currentReply = { messageId, text };
+    if(replyPreviewBar){
+        replyPreviewBar.style.display = "flex";
+        replyPreviewText.textContent = text;
+    }
+}
+
+function clearReply(){
+    currentReply = null;
+    if(replyPreviewBar){
+        replyPreviewBar.style.display = "none";
+        replyPreviewText.textContent = "";
+    }
+}
+
+function ensureReactionState(messageId){
+    if(!reactionsByMessage[messageId]){
+        reactionsByMessage[messageId] = {};
+    }
+}
+
+function handleReactionClick(messageId, emoji){
+    ensureReactionState(messageId);
+    const msgReactions = reactionsByMessage[messageId];
+    const existingSet = msgReactions[emoji] || new Set();
+    if(existingSet.has(nickname)){
+        return; // prevent duplicate reaction from same user for same emoji
+    }
+    socket.emit("messageReaction", {
+        roomId,
+        messageId,
+        emoji,
+        user: nickname
+    });
+    const msgEl = document.getElementById(messageId);
+    if(msgEl){
+        msgEl.classList.remove("show-reaction-bar");
+    }
+}
 
 socket.emit("joinRoom", { roomId, nickname });
 
 /* ================= EMOJI ================= */
-
 function toggleEmoji(){
     if(emojiBox.style.display === "none" || emojiBox.style.display === ""){
         emojiBox.style.display = "block";
         emojiBox.innerHTML = "<emoji-picker></emoji-picker>";
-
         document.querySelector("emoji-picker")
         .addEventListener("emoji-click", e => {
             msgInput.value += e.detail.unicode;
@@ -60,33 +172,130 @@ function toggleEmoji(){
 }
 
 /* ================= SEND TEXT ================= */
-
 function sendMsg(){
     const message = msgInput.value.trim();
     if(!message) return;
 
-    const id = Date.now().toString();
-
-    socket.emit("chatMessage", {
+    const payload = {
         roomId,
         user: nickname,
+        type: "text",
         message,
-        id
-    });
+        id: Date.now().toString()
+    };
+
+    if(currentReply){
+        payload.reply = {
+            messageId: currentReply.messageId,
+            text: currentReply.text
+        };
+    }
+
+    socket.emit("chatMessage", payload);
 
     msgInput.value = "";
+    clearReply();
 }
 
-/* ================= RENDER MESSAGE ================= */
+/* ================= IMAGE UPLOAD ================= */
+function triggerImage(){
+    imageInput.click();
+}
 
+imageInput.addEventListener("change", function(){
+    const file = this.files[0];
+    if(!file) return;
+
+    if(!file.type.startsWith("image/")){
+        alert("Only image files are allowed");
+        this.value = "";
+        return;
+    }
+
+    if(file.size > 5 * 1024 * 1024){
+        alert("Image must be less than 5MB");
+        this.value = "";
+        return;
+    }
+
+    selectedImageFile = file;
+
+    const reader = new FileReader();
+    reader.onload = e => {
+        imageOptionsPreview.src = e.target.result;
+        imageOptions.style.display = "flex";
+    };
+    reader.readAsDataURL(file);
+});
+
+async function uploadAndSendImage(isViewOnce){
+    if(!selectedImageFile) return;
+
+    const formData = new FormData();
+    formData.append("image", selectedImageFile);
+
+    try{
+        const res = await fetch("/upload-image", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await res.json();
+
+        if(!res.ok){
+            alert(data.error || "Image upload failed");
+            return;
+        }
+
+        const id = Date.now().toString();
+
+        const payload = {
+            roomId,
+            user: nickname,
+            id,
+            type: isViewOnce ? "image_view_once" : "image",
+            message: isViewOnce ? "" : data.imageUrl,
+            imageUrl: data.imageUrl
+        };
+
+        if(currentReply){
+            payload.reply = {
+                messageId: currentReply.messageId,
+                text: currentReply.text
+            };
+        }
+
+        socket.emit("chatMessage", payload);
+
+    }catch(err){
+        alert("Image upload failed");
+    }finally{
+        selectedImageFile = null;
+        imageInput.value = "";
+        imageOptions.style.display = "none";
+        clearReply();
+    }
+}
+
+sendNormalBtn.addEventListener("click", ()=> uploadAndSendImage(false));
+sendViewOnceBtn.addEventListener("click", ()=> uploadAndSendImage(true));
+cancelImageBtn.addEventListener("click", ()=>{
+    selectedImageFile = null;
+    imageInput.value = "";
+    imageOptions.style.display = "none";
+});
+
+/* ================= RENDER ================= */
 function renderMessage(data){
     const div = document.createElement("div");
+    const isMine = data.user === nickname;
+    const type = data.type || data.msgType || (data.imageUrl ? "image" : "text");
+
     div.classList.add("message");
-    div.classList.add(data.user === nickname ? "my-msg" : "other-msg");
+    div.classList.add(isMine ? "my-msg" : "other-msg");
     div.id = data.id;
 
-    div.innerHTML = `
-    ${data.user === nickname ? `
+    const menuHtml = isMine ? `
         <div class="msg-menu-wrapper">
             <div class="msg-menu">
                 ⋮
@@ -94,25 +303,82 @@ function renderMessage(data){
                     <span onclick="deleteMsg('${data.id}')">Unsend</span>
                 </div>
             </div>
-        </div>
-    ` : ""}
+        </div>` : "";
 
-    <div class="msg-content">
-        ${data.user !== nickname ? `<span class="msg-user">${data.user}</span>` : ""}
-        <div class="msg-text">${data.message}</div>
-    </div>
+    const userLabelHtml = !isMine ? `<span class="msg-user">${data.user}</span>` : "";
+
+    let msgInnerHtml = "";
+
+    if(type === "image"){
+        const imageSrc = data.imageUrl || data.message;
+        msgInnerHtml = `<img src="${imageSrc}" class="chat-image" onclick="openModal('${imageSrc}')">`;
+    } else if(type === "image_view_once"){
+        if(hasViewedOnce(data.id)){
+            msgInnerHtml = `<i>Photo expired</i>`;
+        } else {
+            const imageSrc = data.imageUrl;
+            msgInnerHtml = `<button class="view-once-btn" onclick="viewOnceImage('${data.id}','${imageSrc}')">View Photo</button>`;
+        }
+    } else {
+        msgInnerHtml = data.message;
+    }
+
+    ensureReactionState(data.id);
+
+    let replyBoxHtml = "";
+    if(data.reply && data.reply.messageId && data.reply.text){
+        const safeReplyText = String(data.reply.text).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        replyBoxHtml = `
+            <div class="reply-box" onclick="scrollToMessage('${data.reply.messageId}')">
+                <div class="reply-box-bar"></div>
+                <div class="reply-box-content">
+                    <div class="reply-box-label">Replying to</div>
+                    <div class="reply-box-text">${safeReplyText}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    let previewText = "";
+    if(type === "image"){
+        previewText = "Photo";
+    } else if(type === "image_view_once"){
+        previewText = "View once photo";
+    } else {
+        previewText = String(data.message || "");
+    }
+    const safePreviewTextAttr = previewText.replace(/"/g, "&quot;");
+
+    div.innerHTML = `
+        ${menuHtml}
+
+        <div class="msg-content">
+            ${userLabelHtml}
+            <div class="msg-text">
+                ${replyBoxHtml}
+                ${msgInnerHtml}
+            </div>
+            <div class="reaction-bar">
+                <span class="reaction-emoji" data-emoji="❤️">❤️</span>
+                <span class="reaction-emoji" data-emoji="😂">😂</span>
+                <span class="reaction-emoji" data-emoji="🔥">🔥</span>
+                <span class="reaction-emoji" data-emoji="👍">👍</span>
+                <span class="reaction-emoji" data-emoji="😮">😮</span>
+            </div>
+            <div class="reaction-container" id="reactions-${data.id}"></div>
+            <div class="msg-actions">
+                <span class="reply-icon" data-id="${data.id}" data-preview="${safePreviewTextAttr}">↩</span>
+            </div>
+        </div>
     `;
 
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-socket.on("chatMessage", data => {
-    renderMessage(data);
-});
+socket.on("chatMessage", renderMessage);
 
 /* ================= DELETE ================= */
-
 function deleteMsg(id){
     socket.emit("deleteMessage", { roomId, id });
 }
@@ -124,45 +390,125 @@ socket.on("deleteMessage", data=>{
     }
 });
 
-/* ================= VOICE RECORD (PRESS & HOLD) ================= */
-
-let mediaRecorder;
-let audioChunks = [];
-
-micBtn.addEventListener("mousedown", async ()=>{
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.start();
-    micBtn.classList.add("recording");
-
-    mediaRecorder.ondataavailable = e=>{
-        audioChunks.push(e.data);
-    };
+/* ================= REACTIONS ================= */
+socket.on("messageReaction", data => {
+    applyReaction(data);
 });
 
-micBtn.addEventListener("mouseup", ()=>{
-    if(mediaRecorder){
-        mediaRecorder.stop();
-        micBtn.classList.remove("recording");
+function applyReaction(data){
+    const { messageId, emoji, user } = data;
+    if(!messageId || !emoji || !user) return;
+    ensureReactionState(messageId);
+    const msgReactions = reactionsByMessage[messageId];
+    if(!msgReactions[emoji]){
+        msgReactions[emoji] = new Set();
+    }
+    const set = msgReactions[emoji];
+    if(set.has(user)){
+        return;
+    }
+    set.add(user);
+    updateReactionsUI(messageId);
+}
 
-        mediaRecorder.onstop = ()=>{
-            const blob = new Blob(audioChunks, { type: "audio/webm" });
-            const url = URL.createObjectURL(blob);
+function updateReactionsUI(messageId){
+    const msgReactions = reactionsByMessage[messageId];
+    const container = document.getElementById("reactions-" + messageId);
+    if(!msgReactions || !container) return;
 
-            socket.emit("chatMessage", {
-                roomId,
-                user: nickname,
-                message: `<audio controls src="${url}"></audio>`,
-                id: Date.now().toString()
-            });
+    const entries = Object.entries(msgReactions).filter(([_, set])=> set.size > 0);
 
-            audioChunks = [];
-        };
+    if(entries.length === 0){
+        container.style.display = "none";
+        container.innerHTML = "";
+        return;
+    }
+
+    const html = entries.map(([emoji, set])=>{
+        return `<span class="reaction-pill">${emoji}<span class="reaction-count">${set.size}</span></span>`;
+    }).join("");
+
+    container.innerHTML = html;
+    container.style.display = "inline-flex";
+}
+
+/* ================= SCROLL TO MESSAGE ================= */
+function scrollToMessage(id){
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("highlight-message");
+    setTimeout(()=> el.classList.remove("highlight-message"), 600);
+}
+
+/* ================= MODAL ================= */
+function openModal(src){
+    document.getElementById("modalImage").src = src;
+    document.getElementById("imageModal").style.display = "flex";
+}
+
+function closeModal(){
+    document.getElementById("imageModal").style.display = "none";
+}
+
+function viewOnceImage(id, src){
+    if(hasViewedOnce(id)) return;
+
+    markViewedOnce(id);
+    openModal(src);
+
+    const msg = document.getElementById(id);
+    const msgText = msg ? msg.querySelector(".msg-text") : null;
+
+    setTimeout(()=>{
+        closeModal();
+        if(msgText){
+            msgText.innerHTML = "<i>Photo expired</i>";
+        }
+    }, 5000);
+}
+
+/* ================= REPLY ICON CLICK ================= */
+chatBox.addEventListener("click", e => {
+    const target = e.target;
+    if(target && target.classList.contains("reply-icon")){
+        const id = target.getAttribute("data-id");
+        const text = target.getAttribute("data-preview") || "";
+        setReply(id, text);
+        return;
+    }
+
+    const reactionEl = target.closest && target.closest(".reaction-emoji");
+    if(reactionEl){
+        const messageEl = reactionEl.closest(".message");
+        if(messageEl){
+            const emoji = reactionEl.getAttribute("data-emoji");
+            handleReactionClick(messageEl.id, emoji);
+        }
     }
 });
 
-/* ================= ENTER ================= */
+/* ================= LONG PRESS FOR REACTIONS (MOBILE) ================= */
+let longPressTimer = null;
 
+chatBox.addEventListener("touchstart", e => {
+    const messageEl = e.target.closest && e.target.closest(".message");
+    if(!messageEl) return;
+    longPressTimer = setTimeout(()=>{
+        messageEl.classList.add("show-reaction-bar");
+    }, 400);
+});
+
+["touchend","touchcancel","touchmove"].forEach(ev=>{
+    chatBox.addEventListener(ev, ()=>{
+        if(longPressTimer){
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    });
+});
+
+/* ================= ENTER ================= */
 msgInput.addEventListener("keypress", e=>{
     if(e.key === "Enter") sendMsg();
 });
