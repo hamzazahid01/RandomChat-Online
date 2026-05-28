@@ -13,7 +13,6 @@ router.get("/admin", async (req, res) => {
 
     res.render("admin", { loggedIn: false, message: null, rooms: [] });
 });
-
 // Login
 router.post("/admin/login", (req, res) => {
     const { name, password } = req.body;
