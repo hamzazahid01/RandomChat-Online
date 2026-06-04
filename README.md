@@ -42,3 +42,5 @@ Custom CSS (Modern Chat UI)
 👨‍💻 Author
     Developed by Hamza
     Project: randomChat-Online
+
+ℹ️ Note: Minor README update applied for repository sync.
