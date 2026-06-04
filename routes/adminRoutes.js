@@ -25,6 +25,7 @@ router.post("/admin/login", (req, res) => {
     res.render("admin", {
         loggedIn: false,
         message: "Invalid Credentials!",
+        
         rooms: []
     });
 });
